@@ -1,0 +1,111 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-vitrine}
+      MYSQL_USER: ${MYSQL_USER:-vitrine}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local_vitrine_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-local_root_password}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: migrate
+    environment:
+      DATABASE_DSN: "${MYSQL_USER:-vitrine}:${MYSQL_PASSWORD:-local_vitrine_password}@tcp(mysql:3306)/${MYSQL_DATABASE:-vitrine}?parseTime=true&charset=utf8mb4&loc=UTC"
+      TENANT_ID: ${TENANT_ID:-00000000-0000-4000-8000-000000000001}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      API_ADDRESS: :8080
+      DATABASE_DSN: "${MYSQL_USER:-vitrine}:${MYSQL_PASSWORD:-local_vitrine_password}@tcp(mysql:3306)/${MYSQL_DATABASE:-vitrine}?parseTime=true&charset=utf8mb4&loc=UTC"
+      REDIS_ADDR: redis:6379
+      UPLOADS_DIR: /data/uploads
+      TENANT_ID: ${TENANT_ID:-00000000-0000-4000-8000-000000000001}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-0}
+    ports:
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: worker
+    environment:
+      DATABASE_DSN: "${MYSQL_USER:-vitrine}:${MYSQL_PASSWORD:-local_vitrine_password}@tcp(mysql:3306)/${MYSQL_DATABASE:-vitrine}?parseTime=true&charset=utf8mb4&loc=UTC"
+      REDIS_ADDR: redis:6379
+      TENANT_ID: ${TENANT_ID:-00000000-0000-4000-8000-000000000001}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:8080
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  redis-data:
+  uploads:
