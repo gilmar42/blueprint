@@ -1,0 +1,16 @@
+{
+  "name": "vitrine-backend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api": "node src/api.js",
+    "worker": "node src/worker.js",
+    "migrate": "node src/migrate.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "mysql2": "^3.24.6",
+    "nodemailer": "^10.6.1",
+    "redis": "^6.3.1"
+  }
+}

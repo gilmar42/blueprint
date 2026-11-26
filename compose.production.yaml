@@ -1,0 +1,61 @@
+# Required secrets and production URLs are intentionally provided through the
+# deployment environment (or an external secrets manager), never defaults.
+services:
+  mysql:
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+
+  redis:
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD}"]
+
+  production-check:
+    image: blueprint-main-production-check
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: migrate
+    environment:
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    command: ["node", "src/check-production-config.js"]
+    restart: "no"
+
+  migrate:
+    environment: &production_backend_environment
+      APP_ENV: production
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:?Set MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER:?Set MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      QUEUE_DRIVER: redis
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      TENANT_ID: ${TENANT_ID:-00000000-0000-4000-8000-000000000001}
+      APP_BASE_URL: ${APP_BASE_URL:?Set APP_BASE_URL to the public HTTPS origin}
+      AUTH_COOKIE_SECURE: "1"
+      SMTP_ADDRESS: ${SMTP_ADDRESS:?Set SMTP_ADDRESS}
+      SMTP_USERNAME: ${SMTP_USERNAME:?Set SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?Set SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM:?Set SMTP_FROM}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Set OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6.2-astra}
+    depends_on:
+      production-check:
+        condition: service_completed_successfully
+
+  api:
+    environment: *production_backend_environment
+
+  worker:
+    environment: *production_backend_environment
+
+  web:
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000

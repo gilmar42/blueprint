@@ -1,0 +1,5 @@
+node_modules
+*.log
+go.mod
+go.sum
+cmd
